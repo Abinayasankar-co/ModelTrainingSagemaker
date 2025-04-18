@@ -1,33 +1,36 @@
-import boto3
-import os
 import sagemaker
+from sagemaker.sklearn.estimator import SKLearn
 from sagemaker import get_execution_role
-from sagemaker.tensorflow import TensorFlow
-from sagemaker.inputs import TrainingInput
 
-s3 = boto3.client('s3')
-bucket_name = os.environ['S3_BUCKET_NAME']
-image_folder = os.environ['LOCAL_IMAGE_FOLDER']
-s3_prefix = os.environ['S3_PREFIX']
 role = get_execution_role()
 sess = sagemaker.Session()
+bucket = sess.default_bucket()
+prefix = "house-price-prediction"
 
-for root, dirs, files in os.walk(image_folder):
-    for file in files:
-        path = os.path.join(root, file)
-        s3.upload_file(path, bucket_name, f"{s3_prefix}/{file}")
-
-s3_path = f"s3://{bucket_name}/{s3_prefix}"
-
-estimator = TensorFlow(
-    entry_point='train_script.py',
+sklearn_estimator = SKLearn(
+    entry_point="train.py",
     role=role,
-    instance_count=1,
-    instance_type='ml.m5.large',
-    framework_version='2.12.0',
-    py_version='py39',
-    script_mode=True,
-    hyperparameters={}
+    instance_type="ml.m5.large",
+    framework_version="0.23-1",
+    py_version="py3",
+    hyperparameters={
+        "n-estimators": 100,
+        "min-samples-leaf": 3
+    },
+    source_dir=".",
+    output_path=f"s3://{bucket}/{prefix}/output"
 )
 
-estimator.fit({'train': TrainingInput(s3_data=s3_path, content_type='application/x-image')})
+sklearn_estimator.fit()
+
+predictor = sklearn_estimator.deploy(
+    initial_instance_count=1,
+    instance_type="ml.m5.large",
+    entry_point="inference.py",
+    source_dir="."
+)
+
+
+sample_input = [[8.3252, 41.0, 6.984127, 1.02381, 322.0, 2.555556, 37.88, -122.23]]
+response = predictor.predict(sample_input)
+print(f"Predicted house price: {response}")
