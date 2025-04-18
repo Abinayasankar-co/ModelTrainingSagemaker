@@ -1,47 +1,37 @@
-import tensorflow as tf
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import argparse
+import joblib
 import os
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import root_mean_squared_error
+from sklearn.model_selection import train_test_split
+from sklearn.datasets import fetch_california_housing
 
-train_dir = os.environ['SM_CHANNEL_TRAIN']
-img_width, img_height = 150, 150
-batch_size = 32
+def model_fn(model_dir):
+    return joblib.load(os.path.join(model_dir, "model.joblib"))
 
-model = Sequential([
-    Conv2D(32, (3, 3), activation='relu', input_shape=(img_width, img_height, 3)),
-    MaxPooling2D(2, 2),
-    Conv2D(64, (3, 3), activation='relu'),
-    MaxPooling2D(2, 2),
-    Flatten(),
-    Dense(128, activation='relu'),
-    Dense(1, activation='sigmoid')
-])
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--n-estimators", type=int, default=100)
+    parser.add_argument("--min-samples-leaf", type=int, default=3)
+    parser.add_argument("--model-dir", type=str, default=os.environ.get("SM_MODEL_DIR"))
+    args = parser.parse_args()
 
-model.compile(loss='binary_crossentropy', optimizer='adam', metrics=['accuracy'])
+    data = fetch_california_housing()
+    X = pd.DataFrame(data.data, columns=data.feature_names)
+    y = pd.Series(data.target)
 
-datagen = ImageDataGenerator(rescale=1./255, validation_split=0.2)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-train_generator = datagen.flow_from_directory(
-    train_dir,
-    target_size=(img_width, img_height),
-    batch_size=batch_size,
-    class_mode='binary',
-    subset='training'
-)
+    model = RandomForestRegressor(
+        n_estimators=args.n_estimators,
+        min_samples_leaf=args.min_samples_leaf,
+        random_state=42
+    )
+    model.fit(X_train, y_train)
 
-validation_generator = datagen.flow_from_directory(
-    train_dir,
-    target_size=(img_width, img_height),
-    batch_size=batch_size,
-    class_mode='binary',
-    subset='validation'
-)
+    predictions = model.predict(X_test)
+    rmse = root_mean_squared_error(y_test, predictions, squared=False)
+    print(f"RMSE: {rmse}")
 
-model.fit(
-    train_generator,
-    validation_data=validation_generator,
-    epochs=10
-)
-
-model.save('/opt/ml/model/model.h5')
+    joblib.dump(model, os.path.join(args.model_dir, "model.joblib"))
