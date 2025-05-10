@@ -7,7 +7,7 @@ from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import train_test_split
 from sklearn.datasets import fetch_california_housing
 
-def model_fn(model_dir):
+def model(model_dir):
     return joblib.load(os.path.join(model_dir, "model.joblib"))
 
 if __name__ == "__main__":
